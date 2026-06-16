@@ -281,6 +281,8 @@ export default function ShedConfigurator() {
   const [frameColor, setFrameColor] = useState("white");
   const [panels, setPanels] = useState(() => ({ [midFront(3)]: "door" }));
   const [menu, setMenu] = useState(null); // {key, x, y}
+  const [arUrl, setArUrl] = useState(null); // GLB blob url ל-AR
+  const [arBusy, setArBusy] = useState(false);
 
   const size = SIZES.find((s) => s.id === sizeId);
   const windows = Object.values(panels).filter((t) => t === "window").length;
@@ -529,6 +531,55 @@ export default function ShedConfigurator() {
     setMenu(null);
   };
 
+  /* ---------- ייצוא GLB והצגת AR ---------- */
+  const viewInAR = async () => {
+    const a = api.current;
+    if (!a.shed || arBusy) return;
+    setArBusy(true);
+    try {
+      // טעינה דינמית של GLTFExporter (לא נדרש ב-bundle הראשי)
+      const { GLTFExporter } = await import(
+        "three/examples/jsm/exporters/GLTFExporter.js"
+      );
+      const exporter = new GLTFExporter();
+
+      // משכפלים את המחסן ומסובבים כך שה"רצפה" תהיה ב-y=0 לטובת AR
+      const clone = a.shed.clone(true);
+
+      const glb = await new Promise((resolve, reject) => {
+        exporter.parse(
+          clone,
+          (result) => resolve(result),
+          (err) => reject(err),
+          { binary: true, onlyVisible: true }
+        );
+      });
+
+      const blob = new Blob([glb], { type: "model/gltf-binary" });
+      if (arUrl) URL.revokeObjectURL(arUrl);
+      const url = URL.createObjectURL(blob);
+      setArUrl(url);
+    } catch (e) {
+      console.error("AR export failed:", e);
+      alert("ייצוא ה-AR נכשל. נסו שוב.");
+    } finally {
+      setArBusy(false);
+    }
+  };
+
+  // טוען את ה-web component של <model-viewer> פעם אחת
+  useEffect(() => {
+    if (document.querySelector('script[data-mv]')) return;
+    const s = document.createElement("script");
+    s.type = "module";
+    s.src = "https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js";
+    s.setAttribute("data-mv", "1");
+    document.head.appendChild(s);
+  }, []);
+
+  // ניקוי ה-blob url
+  useEffect(() => () => { if (arUrl) URL.revokeObjectURL(arUrl); }, [arUrl]);
+
   /* ---------- תפריט פאנל ---------- */
   const renderMenu = () => {
     if (!menu) return null;
@@ -618,6 +669,23 @@ export default function ShedConfigurator() {
         .row .l{color:var(--mut);}
         .row.total{font-size:18px;font-weight:800;margin-top:6px;padding-top:10px;border-top:1px dashed var(--line);}
         .row.total .v{color:var(--accent);}
+        .ar-btn{width:100%;margin-top:14px;padding:14px;border:none;border-radius:13px;
+          background:var(--accent);color:#fff;font-size:15px;font-weight:800;font-family:inherit;
+          cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;
+          box-shadow:0 6px 16px rgba(13,125,132,.28);transition:transform .1s,opacity .2s;}
+        .ar-btn:active{transform:scale(.98);}
+        .ar-btn:disabled{opacity:.6;cursor:default;}
+        .ar-hint{font-size:11px;color:var(--mut);text-align:center;margin:7px 0 0;}
+        .ar-overlay{position:fixed;inset:0;background:rgba(10,14,18,.62);backdrop-filter:blur(3px);
+          z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;}
+        .ar-card{position:relative;width:min(560px,100%);height:min(70vh,560px);background:#fff;
+          border-radius:18px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.4);display:flex;flex-direction:column;}
+        .ar-close{position:absolute;top:10px;left:10px;z-index:2;width:36px;height:36px;border-radius:50%;
+          border:none;background:rgba(0,0,0,.55);color:#fff;font-size:16px;cursor:pointer;}
+        .mv-ar-button{position:absolute;bottom:54px;left:50%;transform:translateX(-50%);
+          background:var(--accent);color:#fff;border:none;border-radius:999px;padding:12px 26px;
+          font-size:15px;font-weight:800;font-family:inherit;cursor:pointer;box-shadow:0 6px 18px rgba(13,125,132,.4);}
+        .ar-foot{padding:10px 14px;font-size:12px;color:var(--mut);text-align:center;border-top:1px solid var(--line);background:#fafbfc;}
         @media(min-width:980px){
           .cfg{flex-direction:row;}
           .stage{order:2;}
@@ -680,7 +748,40 @@ export default function ShedConfigurator() {
           <div className="row"><span className="l">הובלה והתקנה</span><span>{nis(size.delivery)}</span></div>
           <div className="row total"><span>סה"כ</span><span className="v">{nis(total)}</span></div>
         </div>
+
+        <button className="ar-btn" onClick={viewInAR} disabled={arBusy}>
+          {arBusy ? "מכין מודל…" : "צפה בחצר שלך ב-AR"}
+        </button>
+        <p className="ar-hint">נפתח במצלמה בטלפון · iPhone ו-Android</p>
       </div>
+
+      {/* ===== חלון AR (model-viewer) ===== */}
+      {arUrl && (
+        <div className="ar-overlay" onClick={(e) => { if (e.target === e.currentTarget) setArUrl(null); }}>
+          <div className="ar-card">
+            <button className="ar-close" onClick={() => setArUrl(null)}>✕</button>
+            {/* @ts-ignore web component */}
+            <model-viewer
+              src={arUrl}
+              ar
+              ar-modes="webxr scene-viewer quick-look"
+              ar-scale="fixed"
+              camera-controls
+              touch-action="pan-y"
+              shadow-intensity="1"
+              exposure="1"
+              style={{ width: "100%", height: "100%", background: "#eef1f4" }}
+            >
+              <button slot="ar-button" className="mv-ar-button">
+                הצב בחצר שלך
+              </button>
+            </model-viewer>
+            <div className="ar-foot">
+              סובבו את המודל · לחצו "הצב בחצר שלך" כדי לפתוח AR במצלמה
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
