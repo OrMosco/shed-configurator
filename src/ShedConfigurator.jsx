@@ -29,6 +29,8 @@ const ACCENT = "#0d7d84";
 
 const nis = (n) => "₪" + n.toLocaleString("he-IL");
 const midFront = (l) => `front-${Math.floor(Math.round(l) / 2)}`;
+const isMobileDevice = () =>
+  typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
 /* ===================== סט ידית דלת — רוזטות + ידית מעוקלת + מנעול ===================== */
 function addHandleSet(g, M, hx) {
@@ -283,6 +285,7 @@ export default function ShedConfigurator() {
   const [menu, setMenu] = useState(null); // {key, x, y}
   const [arUrl, setArUrl] = useState(null); // GLB blob url ל-AR
   const [arBusy, setArBusy] = useState(false);
+  const [isMobile] = useState(isMobileDevice);
 
   const size = SIZES.find((s) => s.id === sizeId);
   const windows = Object.values(panels).filter((t) => t === "window").length;
@@ -749,10 +752,10 @@ export default function ShedConfigurator() {
           <div className="row total"><span>סה"כ</span><span className="v">{nis(total)}</span></div>
         </div>
 
-        <button className="ar-btn" onClick={viewInAR} disabled={arBusy}>
-          {arBusy ? "מכין מודל…" : "צפה בחצר שלך ב-AR"}
+        <button className="ar-btn" onClick={isMobile ? viewInAR : undefined} disabled={!isMobile || arBusy}>
+          {!isMobile ? "תצוגת AR זמינה בטלפון" : arBusy ? "מכין מודל…" : "צפה בחצר שלך ב-AR"}
         </button>
-        <p className="ar-hint">נפתח במצלמה בטלפון · iPhone ו-Android</p>
+        {isMobile && <p className="ar-hint">נפתח במצלמה בטלפון · iPhone ו-Android</p>}
       </div>
 
       {/* ===== חלון AR (model-viewer) ===== */}
